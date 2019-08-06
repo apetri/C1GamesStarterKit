@@ -22,6 +22,21 @@ the actual current map state.
 """
 
 class AlgoStrategy(gamelib.AlgoCore):
+
+    #Declate some constants to avoid magic numbers
+    CORES_REQUIRED = 34
+    BITS_REQUIRED = 16
+    LOW_HEALTH_THRESHHOLD = 7
+
+    #The way we track cores last turn is one example of how to maintain a variable across multiple turns
+    cores_last_turn = 0
+    doomsday_device_active = False
+    plan_b_active = False
+    plan_b_initiated = False
+    plan_b_encryptors = []
+    plan_b_location = 0
+    charging_up = False
+
     def __init__(self):
         super().__init__()
         random.seed()
@@ -51,7 +66,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         game_state = gamelib.GameState(self.config, turn_state)
         gamelib.debug_write('Performing turn {} of your custom algo strategy'.format(game_state.turn_number))
-        #game_state.suppress_warnings(True)  #Uncomment this line to suppress warnings.
+        game_state.suppress_warnings(True)  #Uncomment this line to suppress warnings.
 
         self.starter_strategy(game_state)
 
@@ -63,167 +78,150 @@ class AlgoStrategy(gamelib.AlgoCore):
     """
     def starter_strategy(self, game_state):
         """
-        Build the C1 logo. Calling this method first prioritises
-        resources to build and repair the logo before spending them 
-        on anything else.
-        """
-
-        """
-        Then build additional defenses.
+        This strategy is based around surviving and attempting to save resources, 
+        then choosing an evil plan to close out the game
         """
         self.build_defences(game_state)
 
-        """
-        Finally deploy our information units to attack.
-        """
-        self.deploy_attackers(game_state)
+        if self.doomsday_device_active:
+            self.GG(game_state)
+        elif self.plan_b_active:
+            self.plan_b(game_state)
+        else:
+            self.stall(game_state)
 
-    # Here we make the C1 Logo!
-    def build_c1_logo(self, game_state):
-        """
-        We use Filter firewalls because they are cheap
-
-        First, we build the letter C.
-        """
-        firewall_locations = [[8, 11], [9, 11], [7,10], [7, 9], [7, 8], [8, 7], [9, 7]]
-        for location in firewall_locations:
-            if game_state.can_spawn(FILTER, location):
-                game_state.attempt_spawn(FILTER, location)
-        
-        """
-        Build the number 1.
-        """
-        firewall_locations = [[17, 11], [18, 11], [18, 10], [18, 9], [18, 8], [17, 7], [18, 7], [19,7]]
-        for location in firewall_locations:
-            if game_state.can_spawn(FILTER, location):
-                game_state.attempt_spawn(FILTER, location)
-
-        """
-        Build 3 dots with destructors so it looks neat.
-        """
-        firewall_locations = [[11, 7], [13, 9], [15, 11]]
-        for location in firewall_locations:
-            if game_state.can_spawn(DESTRUCTOR, location):
-                game_state.attempt_spawn(DESTRUCTOR, location)
 
     def build_defences(self, game_state):
-        """
-        First lets protect ourselves a little with destructors:
-        """
-        firewall_locations = [[0, 13], [27, 13]]
-        for location in firewall_locations:
-            if game_state.can_spawn(DESTRUCTOR, location):
-                game_state.attempt_spawn(DESTRUCTOR, location)
+        primary_filters = [[0, 13], [3, 13], [8, 13], [19, 13], [24, 13], [27, 13]]
+        primary_destructors = [[1, 12], [2, 12], [9, 12], [10, 12], [17, 12], [18, 12], [25, 12], [26, 12]]
 
-        """
-        Then lets boost our offense by building some encryptors to shield 
-        our information units. Lets put them near the front because the 
-        shields decay over time, so shields closer to the action 
-        are more effective.
-        """
-        firewall_locations = [[3, 11], [4, 11], [5, 11]]
-        for location in firewall_locations:
-            if game_state.can_spawn(ENCRYPTOR, location):
-                game_state.attempt_spawn(ENCRYPTOR, location)
+        game_state.attempt_spawn(DESTRUCTOR, primary_destructors)
+        game_state.attempt_spawn(FILTER, primary_filters)
 
-        """
-        Lastly lets build encryptors in random locations. Normally building 
-        randomly is a bad idea but we'll leave it to you to figure out better 
-        strategies. 
+        #If we haven't initiated an evil plan yet, lets figure out what to do...
+        if not self.doomsday_device_active and not self.plan_b_active:
+            cores = game_state.get_resource(game_state.CORES, 0)
+            bits = game_state.get_resource(game_state.BITS, 0)
+            gamelib.debug_write(f'We have {bits} bits and {cores} cores')
+            if cores >= self.CORES_REQUIRED and bits >= self.BITS_REQUIRED:
+                #We have everything we need! Activate the machine!
+                gamelib.debug_write('The end is near!')
+                self.doomsday_device_active = True
+            elif cores < self.cores_last_turn or (cores < 5 and game_state.turn_number > 2) or game_state.my_health <= self.LOW_HEALTH_THRESHHOLD:
+                gamelib.debug_write(f'Cores: {cores}, Cores last turn: {self.cores_last_turn}, ')
+                gamelib.debug_write('Our plans are being thwarted, it\'s time for plan B!')
+                self.plan_b_active = True
+            else:
+                gamelib.debug_write('Doomsday is averted...for now')
 
-        First we get all locations on the bottom half of the map
-        that are in the arena bounds.
-        """
-        all_locations = []
-        for i in range(game_state.ARENA_SIZE):
-            for j in range(math.floor(game_state.ARENA_SIZE / 2)):
-                if (game_state.game_map.in_arena_bounds([i, j])):
-                    all_locations.append([i, j])
-        
-        """
-        Then we remove locations already occupied.
-        """
-        possible_locations = self.filter_blocked_locations(all_locations, game_state)
 
-        """
-        While we have cores to spend, build a random Encryptor.
-        """
-        while game_state.get_resource(game_state.CORES) >= game_state.type_cost(ENCRYPTOR) and len(possible_locations) > 0:
-            # Choose a random location.
-            location_index = random.randint(0, len(possible_locations) - 1)
-            build_location = possible_locations[location_index]
-            """
-            Build it and remove the location since you can't place two 
-            firewalls in the same location.
-            """
-            game_state.attempt_spawn(ENCRYPTOR, build_location)
-            possible_locations.remove(build_location)
+    def stall(self, game_state):
+        cores = game_state.get_resource(game_state.CORES, 0)
+        if game_state.my_health < 28 and cores < self.CORES_REQUIRED * 0.75:
+            gamelib.debug_write('We need more time! Sending some lackeys to stall!')
 
-    def deploy_attackers(self, game_state):
-        """
-        First lets check if we have 10 bits, if we don't we lets wait for 
-        a turn where we do.
-        """
-        if (game_state.get_resource(game_state.BITS) < 10):
-            return
-        
-        """
-        First lets deploy an EMP long range unit to destroy firewalls for us.
-        """
-        if game_state.can_spawn(EMP, [3, 10]):
-            game_state.attempt_spawn(EMP, [3, 10])
-
-        """
-        Now lets send out 3 Pings to hopefully score, we can spawn multiple 
-        information units in the same location.
-        """
-        if game_state.can_spawn(PING, [14, 0], 3):
-            game_state.attempt_spawn(PING, [14,0], 3)
-
-        """
-        NOTE: the locations we used above to spawn information units may become 
-        blocked by our own firewalls. We'll leave it to you to fix that issue 
-        yourselves.
-
-        Lastly lets send out Scramblers to help destroy enemy information units.
-        A complex algo would predict where the enemy is going to send units and 
-        develop its strategy around that. But this algo is simple so lets just 
-        send out scramblers in random locations and hope for the best.
-
-        Firstly information units can only deploy on our edges. So lets get a 
-        list of those locations.
-        """
-        friendly_edges = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_LEFT) + game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_RIGHT)
-        
-        """
-        Remove locations that are blocked by our own firewalls since we can't 
-        deploy units there.
-        """
-        deploy_locations = self.filter_blocked_locations(friendly_edges, game_state)
-        
-        """
-        While we have remaining bits to spend lets send out scramblers randomly.
-        """
-        while game_state.get_resource(game_state.BITS) >= game_state.type_cost(SCRAMBLER) and len(deploy_locations) > 0:
-           
-            """
-            Choose a random deploy location.
-            """
-            deploy_index = random.randint(0, len(deploy_locations) - 1)
-            deploy_location = deploy_locations[deploy_index]
+            #Send out 2 lackeys
+            game_state.attempt_spawn(SCRAMBLER, [5, 8], 1)
+            game_state.attempt_spawn(SCRAMBLER, [22, 8], 1)
             
-            game_state.attempt_spawn(SCRAMBLER, deploy_location)
-            """
-            We don't have to remove the location since multiple information 
-            units can occupy the same space.
-            """
+            bottom_left_locations = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_LEFT)
+            bottom_right_locations = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_RIGHT)
+            possilbe_locations = bottom_left_locations + bottom_right_locations
+
+            #Send out 2 random lackies to stall the game
+            if game_state.my_health < 20:
+                gamelib.debug_write('One last line of defence!')
+                emergency_destructors = [[23, 12], [23, 11], [4, 12], [4, 11], [13, 8], [14, 8]]
+                emergency_filters = [[12, 8], [15, 8]]
+                game_state.attempt_spawn(DESTRUCTOR, emergency_destructors, 1)
+                game_state.attempt_spawn(FILTER, emergency_filters, 1)
+                for _ in range(2):
+                    random_index = random.randrange(0, len(possilbe_locations))
+                    game_state.attempt_spawn(SCRAMBLER, possilbe_locations[random_index])
+
+
+    def plan_b(self, game_state):
+        gamelib.debug_write('Its now or never!')
+        '''
+            Our alternative plan is to find the safest path,
+            And surround it with as many encryptors as is possible
+        '''
+        #One-time setup for plan B, choose a location we will attack from
+        if not self.plan_b_initiated:
+            self.plan_b_initiated = True
+            bottom_left_locations = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_LEFT)
+            bottom_right_locations = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_RIGHT)
+            possilbe_locations = bottom_left_locations + bottom_right_locations
+
+            best_choice = possilbe_locations[0]
+            best_danger = math.inf
+            for location in possilbe_locations:
+                if game_state.game_map[location]: #If this location is blocked, we skip it
+                    continue
+                if location[0] <= 13:
+                    target_edge = game_state.game_map.TOP_RIGHT
+                else: 
+                    target_edge = game_state.game_map.TOP_LEFT
+                path = game_state.find_path_to_edge(location, target_edge)
+                path_danger = 0
+
+                #Make sure the current path we are looking at ends at a location we can score, and starts in the back of our territory
+                score_locations = game_state.game_map.get_edge_locations(target_edge)
+                if path[-1] in score_locations and path[0][1] < 4:
+                    for path_location in path:
+                        #As a rough measure of path danger, check how many destructors we pass near
+                        for i in range(3):
+                            for j in range(3):
+                                units_at_location = game_state.game_map[path_location[0] - 1 + i, path_location[0] - 1 + j]
+                                if units_at_location:
+                                    for unit in units_at_location:
+                                        if unit.unit_type == DESTRUCTOR:
+                                            path_danger += 1
+
+                    if path_danger < best_danger:
+                        best_choice = location
+                        best_danger = path_danger
+                
+
+            best_path = game_state.find_path_to_edge(best_choice, target_edge)
+            self.plan_b_location = best_choice
+
+            for tile in best_path[0:4]:
+                    #As a rough measure of path danger, check how many destructors we pass near
+                    for i in range(3):
+                        for j in range(3):
+                            check_tile = [tile[0] - 1 + i, tile[1] - 1 + j]
+                            if check_tile not in best_path:
+                                self.plan_b_encryptors.append(check_tile)
         
-    def filter_blocked_locations(self, locations, game_state):
-        filtered = []
-        for location in locations:
-            if not game_state.contains_stationary_unit(location):
-                filtered.append(location)
-        return filtered
+        #After initializing, each successive time... activate plan B!
+        if not self.charging_up:
+            game_state.attempt_spawn(ENCRYPTOR, self.plan_b_encryptors)
+            game_state.attempt_spawn(PING, self.plan_b_location, 666) 
+            self.charging_up = True
+        else:
+            #We only fire our attack every other turn
+            self.charging_up = False
+
+    
+    def GG(self, game_state):
+        '''
+        Thats alot of points! 
+        You can get a copy a large number of points like this using community created tool like this one: 
+        https://www.kevinbai.design/terminal-map-maker 
+        '''
+        if not self.charging_up:
+            the_blueprint = [[7, 7], [8, 7], [10, 7], [11, 7], [12, 7], [13, 7], [14, 7], [15, 7], [16, 7], [7, 6], [8, 6], 
+            [10, 6], [11, 6], [12, 6], [13, 6], [14, 6], [15, 6], [16, 6], [17, 6], [8, 5], [17, 5], [18, 5], [9, 4], [10, 4], 
+            [11, 4], [12, 4], [13, 4], [14, 4], [15, 4], [17, 4], [18, 4], [10, 3], [11, 3], [12, 3], [13, 3], [14, 3], [15, 3], 
+            [17, 3], [11, 2], [12, 2], [12, 1], [14, 1], [15, 1]]
+            game_state.attempt_spawn(ENCRYPTOR, the_blueprint)
+            game_state.attempt_spawn(PING, [14,0], 666) #Attempt to spawn 666 pings at this location. The boss prefers to aim high.
+            self.charging_up = True
+        else:
+            self.charging_up = False
+
+
 
 if __name__ == "__main__":
     algo = AlgoStrategy()
