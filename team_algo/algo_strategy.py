@@ -114,6 +114,12 @@ class AlgoStrategy(gamelib.AlgoCore):
             else:
                 gamelib.debug_write('Doomsday is averted...for now')
 
+        # test: use up remaining cores if available
+        # secondary_filters = [[]]
+        secondary_destructors = [[3, 11], [24, 11], [4, 10], [23, 10], [5, 9], [22, 9], [6, 8], [21, 8], [7, 7], [20, 7], [8, 6], [19, 6], [9, 5], [18, 5], [10, 4], [17, 4], [11, 3], [16, 3], [12, 2], [15, 2]]
+        game_state.attempt_spawn(DESTRUCTOR, secondary_destructors)
+        # game_state.attempt_spawn(FILTER, secondary_filters)
+
 
     def stall(self, game_state):
         cores = game_state.get_resource(game_state.CORES, 0)
