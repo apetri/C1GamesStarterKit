@@ -217,7 +217,8 @@ class AlgoStrategy(gamelib.AlgoCore):
             
             N = len(self.try_locations)
             for iloc in self.try_locations:
-                game_state.attempt_spawn(PING,self.possilbe_locations[iloc],666//min(N,666)) 
+                nping = game_state.number_affordable(PING)
+                game_state.attempt_spawn(PING,self.possilbe_locations[iloc],nping//min(N,nping)) 
             
             self.charging_up = True
         
