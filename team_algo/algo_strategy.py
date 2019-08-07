@@ -301,9 +301,9 @@ class AlgoStrategy(gamelib.AlgoCore):
                     for j in range(3):
                         check_tile = [tile[0] - 1 + i, tile[1] - 1 + j]
                         if check_tile not in best_path:
-                            self.plan_b_encryptors.append(check_tile)
+                            self.gg_encryptors.append(check_tile)
 
-            game_state.attempt_spawn(ENCRYPTOR, self.plan_b_encryptors)
+            game_state.attempt_spawn(ENCRYPTOR, self.gg_encryptors)
             game_state.attempt_spawn(PING, best_path[0], 666)
 
             # the_blueprint = [[7, 7], [8, 7], [10, 7], [11, 7], [12, 7], [13, 7], [14, 7], [15, 7], [16, 7], [7, 6], [8, 6], 
