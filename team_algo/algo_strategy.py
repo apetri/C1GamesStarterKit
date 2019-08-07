@@ -114,6 +114,11 @@ class AlgoStrategy(gamelib.AlgoCore):
             else:
                 gamelib.debug_write('Doomsday is averted...for now')
 
+        secondary_destructors = [[19, 12], [24, 12], [23, 11], [24, 11], [20, 10], [22, 10], [23, 10]]
+        secondary_filters = [[25, 13], [26, 13], [23, 12], [20, 11], [22, 11]]
+        game_state.attempt_spawn(DESTRUCTOR, secondary_destructors)
+        game_state.attempt_spawn(FILTER, secondary_filters)
+
 
     def stall(self, game_state):
         cores = game_state.get_resource(game_state.CORES, 0)
@@ -244,12 +249,69 @@ class AlgoStrategy(gamelib.AlgoCore):
         https://www.kevinbai.design/terminal-map-maker 
         '''
         if not self.charging_up:
-            the_blueprint = [[7, 7], [8, 7], [10, 7], [11, 7], [12, 7], [13, 7], [14, 7], [15, 7], [16, 7], [7, 6], [8, 6], 
-            [10, 6], [11, 6], [12, 6], [13, 6], [14, 6], [15, 6], [16, 6], [17, 6], [8, 5], [17, 5], [18, 5], [9, 4], [10, 4], 
-            [11, 4], [12, 4], [13, 4], [14, 4], [15, 4], [17, 4], [18, 4], [10, 3], [11, 3], [12, 3], [13, 3], [14, 3], [15, 3], 
-            [17, 3], [11, 2], [12, 2], [12, 1], [14, 1], [15, 1]]
-            game_state.attempt_spawn(ENCRYPTOR, the_blueprint)
-            game_state.attempt_spawn(PING, [14,0], 666) #Attempt to spawn 666 pings at this location. The boss prefers to aim high.
+            bottom_left_locations = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_LEFT)
+            bottom_right_locations = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_RIGHT)
+            possilbe_locations = bottom_left_locations + bottom_right_locations
+            self.possilbe_locations = possilbe_locations
+
+            best_choice = possilbe_locations[0]
+            best_danger = math.inf
+            
+            # Keep track of location danger scores
+            start_location_dangers = {}
+
+            for n,location in enumerate(possilbe_locations):
+                if game_state.game_map[location]: #If this location is blocked, we skip it
+                    continue
+                if location[0] <= 13:
+                    target_edge = game_state.game_map.TOP_RIGHT
+                else: 
+                    target_edge = game_state.game_map.TOP_LEFT
+                path = game_state.find_path_to_edge(location, target_edge)
+                path_danger = 0
+
+                #Make sure the current path we are looking at ends at a location we can score, and starts in the back of our territory
+                score_locations = game_state.game_map.get_edge_locations(target_edge)
+                if path[-1] in score_locations and path[0][1] < 4:
+                    for path_location in path:
+                        #As a rough measure of path danger, check how many destructors we pass near
+                        for i in range(3):
+                            for j in range(3):
+                                units_at_location = game_state.game_map[path_location[0] - 1 + i, path_location[0] - 1 + j]
+                                if units_at_location:
+                                    for unit in units_at_location:
+                                        if unit.unit_type == DESTRUCTOR:
+                                            path_danger += 1
+
+                    start_location_dangers[n] = path_danger
+
+                    if path_danger < best_danger:
+                        best_choice = location
+                        best_danger = path_danger
+
+
+                else:
+                    start_location_dangers[n] = math.inf
+
+            best_path = game_state.find_path_to_edge(best_choice, target_edge)
+            self.plan_b_location = best_choice
+
+            for tile in best_path[0:4]:
+                for i in range(3):
+                    for j in range(3):
+                        check_tile = [tile[0] - 1 + i, tile[1] - 1 + j]
+                        if check_tile not in best_path:
+                            self.plan_b_encryptors.append(check_tile)
+
+            game_state.attempt_spawn(ENCRYPTOR, self.plan_b_encryptors)
+            game_state.attempt_spawn(PING, best_path[0], 666)
+
+            # the_blueprint = [[7, 7], [8, 7], [10, 7], [11, 7], [12, 7], [13, 7], [14, 7], [15, 7], [16, 7], [7, 6], [8, 6], 
+            # [10, 6], [11, 6], [12, 6], [13, 6], [14, 6], [15, 6], [16, 6], [17, 6], [8, 5], [17, 5], [18, 5], [9, 4], [10, 4], 
+            # [11, 4], [12, 4], [13, 4], [14, 4], [15, 4], [17, 4], [18, 4], [10, 3], [11, 3], [12, 3], [13, 3], [14, 3], [15, 3], 
+            # [17, 3], [11, 2], [12, 2], [12, 1], [14, 1], [15, 1]]
+            # game_state.attempt_spawn(ENCRYPTOR, the_blueprint)
+            # game_state.attempt_spawn(PING, [14,0], 666) #Attempt to spawn 666 pings at this location. The boss prefers to aim high.
             self.charging_up = True
         else:
             self.charging_up = False
