@@ -152,10 +152,15 @@ class AlgoStrategy(gamelib.AlgoCore):
             bottom_left_locations = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_LEFT)
             bottom_right_locations = game_state.game_map.get_edge_locations(game_state.game_map.BOTTOM_RIGHT)
             possilbe_locations = bottom_left_locations + bottom_right_locations
+            self.possilbe_locations = possilbe_locations
 
             best_choice = possilbe_locations[0]
             best_danger = math.inf
-            for location in possilbe_locations:
+            
+            # Keep track of location danger scores
+            start_location_dangers = {}
+
+            for n,location in enumerate(possilbe_locations):
                 if game_state.game_map[location]: #If this location is blocked, we skip it
                     continue
                 if location[0] <= 13:
@@ -178,31 +183,58 @@ class AlgoStrategy(gamelib.AlgoCore):
                                         if unit.unit_type == DESTRUCTOR:
                                             path_danger += 1
 
+                    start_location_dangers[n] = path_danger
+
                     if path_danger < best_danger:
                         best_choice = location
                         best_danger = path_danger
+
+                else:
+                    start_location_dangers[n] = math.inf
                 
 
-            best_path = game_state.find_path_to_edge(best_choice, target_edge)
-            self.plan_b_location = best_choice
+            #Sort locations in ascending order of danger (less danger is best)
+            self.locations_sorted = sorted(start_location_dangers,key=start_location_dangers.get)
+            self.dangers_sorted = [ start_location_dangers[i] for i in self.locations_sorted ]
+            self.try_locations = [ x for x in self.locations_sorted if not start_location_dangers[x]==math.inf ]
 
-            for tile in best_path[0:4]:
+
+#            best_path = game_state.find_path_to_edge(best_choice, target_edge)
+#            self.plan_b_location = best_choice
+
+#            for tile in best_path[0:4]:
                     #As a rough measure of path danger, check how many destructors we pass near
-                    for i in range(3):
-                        for j in range(3):
-                            check_tile = [tile[0] - 1 + i, tile[1] - 1 + j]
-                            if check_tile not in best_path:
-                                self.plan_b_encryptors.append(check_tile)
+#                    for i in range(3):
+#                        for j in range(3):
+#                            check_tile = [tile[0] - 1 + i, tile[1] - 1 + j]
+#                            if check_tile not in best_path:
+#                                self.plan_b_encryptors.append(check_tile)
         
         #After initializing, each successive time... activate plan B!
         if not self.charging_up:
-            game_state.attempt_spawn(ENCRYPTOR, self.plan_b_encryptors)
-            game_state.attempt_spawn(PING, self.plan_b_location, 666) 
+
+            #game_state.attempt_spawn(ENCRYPTOR, self.plan_b_encryptors)
+            
+            N = len(self.try_locations)
+            for iloc in self.try_locations:
+                game_state.attempt_spawn(PING,self.possilbe_locations[iloc],666//min(N,666)) 
+            
             self.charging_up = True
+        
+
         else:
             #We only fire our attack every other turn
             self.charging_up = False
 
+    def filter_blocked_locations(self, locations, game_state):
+        filtered = []
+        for location in locations:
+            if not game_state.contains_stationary_unit(location):
+                filtered.append(location)
+        return filtered
+
+    #################################################################################################
+    #################################################################################################
     
     def GG(self, game_state):
         '''
